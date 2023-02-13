@@ -8,3 +8,4 @@ set(CMAKE_CXX_STANDARD 20 CACHE STRING "")
 
 include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
 add_subdirectory(lib)
+add_subdirectory(test)

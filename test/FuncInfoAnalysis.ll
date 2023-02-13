@@ -2,6 +2,21 @@
 ; `$LLVM15_INSTALL_DIR/bin/clang -O0 -S -emit-llvm FuncInfoAnalysis.cpp -o FuncInfoAnalysis.ll`
 ; NOTE: Attributes are trimmed to make it more readable.
 
+; RUN: opt -load-pass-plugin %plugin_dir/libFuncInfoAnalysis%plugin_suffix -passes=func-info-analysis -disable-output 2>&1 %s | FileCheck %s
+; CHECK: Name: add
+; CHECK-NEXT: NArgs: 2
+; CHECK-NEXT: NBlocks: 1
+; CHECK-NEXT: NInsts: 8
+;
+; CHECK: Name: sub1
+; CHECK-NEXT: NArgs: 1
+; CHECK-NEXT: NBlocks: 1
+; CHECK-NEXT: NInsts: 5
+;
+; CHECK: Name: abs
+; CHECK-NEXT: NArgs: 1
+; CHECK-NEXT: NBlocks: 4
+; CHECK-NEXT: NInsts: 15
 define i32 @add(i32 %0, i32 %1) {
   %3 = alloca i32, align 4
   %4 = alloca i32, align 4
