@@ -5,13 +5,16 @@
 
 using namespace llvm;
 
-PreservedAnalyses FuncInfoAnalysis::run(Function &F, FunctionAnalysisManager &_)
+AnalysisKey FuncInfoAnalysis::Key;
+
+FuncInfoAnalysis::Result FuncInfoAnalysis::run(Function &F, FunctionAnalysisManager &)
 {
-    errs() << "Name: " << F.getName() << "\n";
-    errs() << "NArgs: " << F.arg_size() << "\n";
-    errs() << "NBlocks: " << F.size() << "\n";
-    errs() << "NInsts: " << F.getInstructionCount() << "\n\n";
-    return PreservedAnalyses::all();
+    auto name = F.getName();
+    auto nArgs = F.arg_size();
+    auto nBlocks = F.size();
+    auto nInsts = F.getInstructionCount();
+
+    return FuncInfoAnalysis::Result(name, nArgs, nBlocks, nInsts);
 }
 
 llvm::PassPluginLibraryInfo
@@ -20,19 +23,11 @@ getFuncInfoAnalysisPass()
     return {LLVM_PLUGIN_API_VERSION, "func-info-analysis", LLVM_VERSION_STRING,
             [](PassBuilder &PB)
             {
-                PB.registerPipelineParsingCallback(
-                    [](StringRef Name, FunctionPassManager &FPM,
-                       ArrayRef<PassBuilder::PipelineElement>)
+                PB.registerAnalysisRegistrationCallback(
+                    [](FunctionAnalysisManager &FAM)
                     {
-                        if (Name == "func-info-analysis")
-                        {
-                            FPM.addPass(FuncInfoAnalysis());
-                            return true;
-                        }
-                        else
-                        {
-                            return false;
-                        }
+                        FAM.registerPass([&]
+                                         { return FuncInfoAnalysis(); });
                     });
             }};
 }

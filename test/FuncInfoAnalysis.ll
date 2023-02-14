@@ -2,7 +2,7 @@
 ; `$LLVM15_INSTALL_DIR/bin/clang -O0 -S -emit-llvm FuncInfoAnalysis.cpp -o FuncInfoAnalysis.ll`
 ; NOTE: Attributes are trimmed to make it more readable.
 
-; RUN: opt -load-pass-plugin %plugin_dir/libFuncInfoAnalysis%plugin_suffix -passes=func-info-analysis -disable-output 2>&1 %s | FileCheck %s
+; RUN: opt -load-pass-plugin %plugin_dir/libFuncInfoAnalysis%plugin_suffix -load-pass-plugin %plugin_dir/libFuncInfoPrinter%plugin_suffix --passes=func-info-printer -disable-output 2>&1 %s | FileCheck %s
 ; CHECK: Name: add
 ; CHECK-NEXT: NArgs: 2
 ; CHECK-NEXT: NBlocks: 1

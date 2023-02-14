@@ -3,13 +3,21 @@
 
 #include "llvm/IR/PassManager.h"
 
+#include "AnalysisType.h"
+
 using namespace llvm;
 
-struct FuncInfoAnalysis : PassInfoMixin<FuncInfoAnalysis>
-
+struct FuncInfoAnalysis : AnalysisInfoMixin<FuncInfoAnalysis>
 {
-    PreservedAnalyses run(Function &F, FunctionAnalysisManager &_);
+public:
+    using Result = FuncInfo;
+
+    Result run(Function &F, FunctionAnalysisManager &);
     static bool isRequired() { return true; }
+
+private:
+    static AnalysisKey Key;
+    friend struct AnalysisInfoMixin<FuncInfoAnalysis>;
 };
 
 #endif

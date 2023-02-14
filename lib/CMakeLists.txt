@@ -1,10 +1,16 @@
 set(
     LLVM_CUSTOM_PLUGINS
     FuncInfoAnalysis
+    FuncInfoPrinter
 )
+
 set(
     FuncInfoAnalysisSource
     FuncInfoAnalysis.cpp
+)
+set(
+    FuncInfoPrinterSource
+    FuncInfoPrinter.cpp
 )
 
 foreach(plugin ${LLVM_CUSTOM_PLUGINS})
