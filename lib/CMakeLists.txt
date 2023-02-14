@@ -2,6 +2,7 @@ set(
     LLVM_CUSTOM_PLUGINS
     FuncInfoAnalysis
     FuncInfoPrinter
+    Mem2Reg
 )
 
 set(
@@ -11,6 +12,10 @@ set(
 set(
     FuncInfoPrinterSource
     FuncInfoPrinter.cpp
+)
+set(
+  Mem2RegSource
+  Mem2Reg.cpp
 )
 
 foreach(plugin ${LLVM_CUSTOM_PLUGINS})
