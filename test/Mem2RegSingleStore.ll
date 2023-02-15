@@ -1,5 +1,5 @@
 ; This file is geenreted from `Mem2RegSingleStore.cpp` by running
-; `$LLVM15_INSTALL_DIR/bin/clang -O0 -S -emit-llvm FuncInfoAnalysis.cpp -o FuncInfoAnalysis.ll`
+; `$LLVM15_INSTALL_DIR/bin/clang -O0 -S -emit-llvm Mem2RegSingleStore.cpp -o Mem2RegSingleStore.ll`
 ; NOTE: Attributes are trimmed to make it more readable.
 
 

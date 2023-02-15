@@ -6,7 +6,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/BasicBlock.h"
 
-// `dbgs() << ...` is qutie useful for debugging.
+// `dbgs() << ...` is quite useful for debugging.
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
@@ -115,6 +115,40 @@ namespace
             AI->eraseFromParent();
         }
 
+        void promoteSingleBlockAlloca(AllocaInst *AI, BasicBlock *singleBB)
+        {
+            Value *curRepVal = nullptr;
+            SmallVector<StoreInst *, 8> storesToErase;
+
+            for (Instruction &I : make_early_inc_range(*singleBB))
+            {
+                LoadInst *LI = dyn_cast<LoadInst>(&I);
+                if (LI && LI->getOperand(0) == AI)
+                {
+                    if (!curRepVal)
+                        // NOTE: This is not sufficient if there is backedge from successor of `singleBB` to `singleBB`.
+                        // We'll address this later when we introduce `DominatorTree`.
+                        LI->replaceAllUsesWith(PoisonValue::get(LI->getType()));
+                    else
+                        LI->replaceAllUsesWith(curRepVal);
+                    LI->eraseFromParent();
+                    continue;
+                }
+
+                StoreInst *SI = dyn_cast<StoreInst>(&I);
+                if (SI && SI->getOperand(1) == AI)
+                {
+                    curRepVal = SI->getOperand(0);
+                    storesToErase.push_back(SI);
+                }
+            }
+
+            for (StoreInst *SI : storesToErase)
+                SI->eraseFromParent();
+
+            AI->eraseFromParent();
+        }
+
         bool run(Function &F)
         {
             collectPromotableAlloca(F);
@@ -129,6 +163,12 @@ namespace
                 if (pair.second->singleStore)
                 {
                     promoteSingleStoreAlloca(pair.first, pair.second->singleStoreInst);
+                }
+                // If the alloca is used only in a single basic block,
+                // call `PromoteSingleBlockAlloca` to promote it.
+                else if (pair.second->singleBlockUse)
+                {
+                    promoteSingleBlockAlloca(pair.first, pair.second->singleBB);
                 }
             }
 
