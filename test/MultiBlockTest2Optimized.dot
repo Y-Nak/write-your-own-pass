@@ -1,0 +1,21 @@
+digraph "CFG for '_Z5test2b' function" {
+	label="CFG for '_Z5test2b' function";
+
+	Node0x14cf09da0 [shape=record,color="#3d50c3ff", style=filled, fillcolor="#b9d0f970",label="{%1:\l  %2 = zext i1 %0 to i8\l  br label %3\l}"];
+	Node0x14cf09da0 -> Node0x14cf09e80;
+	Node0x14cf09e80 [shape=record,color="#b70d28ff", style=filled, fillcolor="#b70d2870",label="{%3:\l3:                                                \l  %4 = phi i32 [ 10, %1 ], [ %17, %16 ]\l  %5 = phi i32 [ 0, %1 ], [ %19, %16 ]\l  %6 = icmp slt i32 %5, 10\l  br i1 %6, label %7, label %20\l|{<s0>T|<s1>F}}"];
+	Node0x14cf09e80:s0 -> Node0x14cf0a2e0;
+	Node0x14cf09e80:s1 -> Node0x14cf0a360;
+	Node0x14cf0a2e0 [shape=record,color="#b70d28ff", style=filled, fillcolor="#bb1b2c70",label="{%7:\l7:                                                \l  %8 = add nsw i32 %4, %5\l  %9 = trunc i8 %2 to i1\l  br i1 %9, label %10, label %12\l|{<s0>T|<s1>F}}"];
+	Node0x14cf0a2e0:s0 -> Node0x14cf0a0e0;
+	Node0x14cf0a2e0:s1 -> Node0x14cf09de0;
+	Node0x14cf0a0e0 [shape=record,color="#3d50c3ff", style=filled, fillcolor="#e1675170",label="{%10:\l10:                                               \l  %11 = add nsw i32 %8, 100\l  br label %14\l}"];
+	Node0x14cf0a0e0 -> Node0x14cf0a320;
+	Node0x14cf09de0 [shape=record,color="#3d50c3ff", style=filled, fillcolor="#e1675170",label="{%12:\l12:                                               \l  %13 = add nsw i32 %5, 1\l  br label %16\l}"];
+	Node0x14cf09de0 -> Node0x14cf09fc0;
+	Node0x14cf0a320 [shape=record,color="#3d50c3ff", style=filled, fillcolor="#e1675170",label="{%14:\l14:                                               \l  %15 = add nsw i32 %11, 1\l  br label %16\l}"];
+	Node0x14cf0a320 -> Node0x14cf09fc0;
+	Node0x14cf09fc0 [shape=record,color="#b70d28ff", style=filled, fillcolor="#bb1b2c70",label="{%16:\l16:                                               \l  %17 = phi i32 [ %15, %14 ], [ %8, %12 ]\l  %18 = phi i32 [ %5, %14 ], [ %13, %12 ]\l  %19 = add nsw i32 %18, 1\l  br label %3, !llvm.loop !5\l}"];
+	Node0x14cf09fc0 -> Node0x14cf09e80;
+	Node0x14cf0a360 [shape=record,color="#3d50c3ff", style=filled, fillcolor="#b9d0f970",label="{%20:\l20:                                               \l  ret i32 %4\l}"];
+}

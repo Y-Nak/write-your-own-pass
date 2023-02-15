@@ -31,3 +31,32 @@ define i32 @singleBlock() {
   %12 = load i32, ptr %1, align 4
   ret i32 %12
 }
+
+
+; CHECK-LABEL: singleBlock2
+; CHECK: phi i32 [ poison, %0 ], [ 1, {{%[0-9]+}} ]
+define void @singleBlock2() {
+  %1 = alloca i32, align 4
+  %2 = alloca i32, align 4
+  store i32 0, ptr %2, align 4
+  br label %3
+
+3:                                                ; preds = %0, %10
+  %4 = load i32, ptr %1, align 4
+  %5 = load i32, ptr %2, align 4
+  %6 = add nsw i32 %5, %4
+  store i32 %6, ptr %2, align 4
+  store i32 1, ptr %1, align 4
+  %7 = load i32, ptr %2, align 4
+  %8 = icmp sgt i32 %7, 10
+  br i1 %8, label %9, label %10
+
+9:                                                ; preds = %3
+  br label %11
+
+10:                                               ; preds = %3
+  br label %3
+
+11:                                               ; preds = %9
+  ret void
+} 

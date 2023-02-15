@@ -1,0 +1,12 @@
+digraph "CFG for 'test1' function" {
+	label="CFG for 'test1' function";
+
+	Node0x14763ee40 [shape=record,color="#b70d28ff", style=filled, fillcolor="#b70d2870",label="{%1:\l  %2 = zext i1 %0 to i8\l  %3 = trunc i8 %2 to i1\l  br i1 %3, label %4, label %5\l|{<s0>T|<s1>F}}"];
+	Node0x14763ee40:s0 -> Node0x14763ef80;
+	Node0x14763ee40:s1 -> Node0x14763f000;
+	Node0x14763ef80 [shape=record,color="#3d50c3ff", style=filled, fillcolor="#f59c7d70",label="{%4:\l4:                                                \l  br label %6\l}"];
+	Node0x14763ef80 -> Node0x14763f120;
+	Node0x14763f000 [shape=record,color="#3d50c3ff", style=filled, fillcolor="#f59c7d70",label="{%5:\l5:                                                \l  br label %6\l}"];
+	Node0x14763f000 -> Node0x14763f120;
+	Node0x14763f120 [shape=record,color="#b70d28ff", style=filled, fillcolor="#b70d2870",label="{%6:\l6:                                                \l  %7 = phi i32 [ 2, %4 ], [ 3, %5 ]\l  ret i32 %7\l}"];
+}

@@ -4,7 +4,11 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/Analysis/IteratedDominanceFrontier.h"
 
 // `dbgs() << ...` is quite useful for debugging.
 #include "llvm/Support/Debug.h"
@@ -32,10 +36,68 @@ namespace
             : singleBlockUse(singleBlockUse), singleStore(singleStore), singleStoreInst(singleStoreInst), singleBB(singleBB) {}
     };
 
+    /// This struct holds information for phi node insertion and renaming.
+    struct MultiBlockAllocaInfo
+    {
+        SmallPtrSet<StoreInst *, 32> defInstSet;
+        SmallPtrSet<BasicBlock *, 32> defBlockSet;
+        SmallPtrSet<LoadInst *, 32> useInstSet;
+        SmallPtrSet<PHINode *, 32> phiNodeSet;
+        SmallVector<Value *, 8> valueStack;
+
+        void clear()
+        {
+            defInstSet.clear();
+            defBlockSet.clear();
+            useInstSet.clear();
+            phiNodeSet.clear();
+            valueStack.clear();
+        }
+
+        StoreInst *isDefInst(Instruction &I)
+        {
+            if (StoreInst *SI = dyn_cast<StoreInst>(&I))
+            {
+                if (defInstSet.contains(SI))
+                {
+                    return SI;
+                }
+            }
+
+            return nullptr;
+        }
+
+        LoadInst *isUseInst(Instruction &I)
+        {
+            if (LoadInst *LI = dyn_cast<LoadInst>(&I))
+            {
+                if (useInstSet.contains(LI))
+                {
+                    return LI;
+                }
+            }
+
+            return nullptr;
+        }
+
+        PHINode *isPhiInst(Instruction &I)
+        {
+            if (PHINode *PN = dyn_cast<PHINode>(&I))
+            {
+                if (phiNodeSet.contains(PN))
+                {
+                    return PN;
+                }
+            }
+            return nullptr;
+        }
+    };
+
     struct CustomMem2RegRunner
     {
         DenseMap<AllocaInst *, std::unique_ptr<PromotableAllocaInfo>>
             allocaInfoMap;
+        MultiBlockAllocaInfo mbInfo;
 
         void collectPromotableAlloca(Function &F)
         {
@@ -95,29 +157,73 @@ namespace
             allocaInfoMap[AI] = std::make_unique<PromotableAllocaInfo>(singleBlockUse, nStore == 1, singleStoreInst, singleBB);
         }
 
-        void promoteSingleStoreAlloca(AllocaInst *AI, StoreInst *singleSI)
+        bool promoteSingleStoreAlloca(AllocaInst *AI, StoreInst *singleSI, DominatorTree &DT)
         {
+            bool isEliminatedAll = true;
+            BasicBlock *SIBB = singleSI->getParent();
             Value *storedValue = singleSI->getOperand(0);
-            // We have to use `make_early_inc_range` here
-            // because we are going to delete the load in the loop.
-            for (User *U : make_early_inc_range(AI->users()))
+
+            bool isStoreDefined = false;
+            // Check the load instruction is used after the store instruction if the load
+            // instruction is in the same basic block with the store instruction.
+            // If the load instruction is used after the store instruction, we can replace it.
+            // Otherwise we have to use `promoteMultiBlockAlloca` later.
+            for (Instruction &I : make_early_inc_range(*SIBB))
             {
-                if (LoadInst *LI = dyn_cast<LoadInst>(U))
+                if (&I == singleSI)
                 {
-                    // NOTE: This will cause bug if `singleSI` doesn't dominate `LI`.
-                    // We will see how to fix it later when we introduce `DominatorTree`.
-                    LI->replaceAllUsesWith(storedValue);
-                    LI->eraseFromParent();
+                    isStoreDefined = true;
+                    continue;
+                }
+
+                LoadInst *LI = dyn_cast<LoadInst>(&I);
+                if (LI && LI->getOperand(0) == AI)
+                {
+                    if (isStoreDefined)
+                    {
+                        LI->replaceAllUsesWith(storedValue);
+                        LI->eraseFromParent();
+                    }
+                    else
+                        isEliminatedAll = false;
                 }
             }
 
-            singleSI->eraseFromParent();
-            AI->eraseFromParent();
+            for (User *U : make_early_inc_range(AI->users()))
+            {
+                LoadInst *LI = dyn_cast<LoadInst>(U);
+                if (!LI)
+                    continue;
+
+                // If the load inst is not in the same basic block with the store inst and
+                // the load inst is dominated by the store inst, we can replace the load inst.
+                // Otherwise we have to use `promoteMultiBlockAlloca` later so that a phi function is properly inserted.
+                if (LI->getParent() != SIBB)
+                {
+                    if (DT.dominates(singleSI, LI))
+                    {
+                        LI->replaceAllUsesWith(storedValue);
+                        LI->eraseFromParent();
+                    }
+                    else
+                        isEliminatedAll = false;
+                }
+            }
+
+            // If all the load instructions are replaced, we can erase the store instruction and the alloca instruction.
+            if (isEliminatedAll)
+            {
+                singleSI->eraseFromParent();
+                AI->eraseFromParent();
+            }
+
+            return isEliminatedAll;
         }
 
-        void promoteSingleBlockAlloca(AllocaInst *AI, BasicBlock *singleBB)
+        bool promoteSingleBlockAlloca(AllocaInst *AI, BasicBlock *singleBB)
         {
-            Value *curRepVal = nullptr;
+            bool isEliminatedAll = true;
+            StoreInst *curSI = nullptr;
             SmallVector<StoreInst *, 8> storesToErase;
 
             for (Instruction &I : make_early_inc_range(*singleBB))
@@ -125,31 +231,145 @@ namespace
                 LoadInst *LI = dyn_cast<LoadInst>(&I);
                 if (LI && LI->getOperand(0) == AI)
                 {
-                    if (!curRepVal)
-                        // NOTE: This is not sufficient if there is backedge from successor of `singleBB` to `singleBB`.
-                        // We'll address this later when we introduce `DominatorTree`.
-                        LI->replaceAllUsesWith(PoisonValue::get(LI->getType()));
+                    if (curSI)
+                    {
+                        LI->replaceAllUsesWith(curSI->getOperand(0));
+                        LI->eraseFromParent();
+                    }
+                    // If the load instruction used before store instruction, we have to use `promoteMultiBlockAlloca` later.
                     else
-                        LI->replaceAllUsesWith(curRepVal);
-                    LI->eraseFromParent();
-                    continue;
+                        isEliminatedAll = false;
                 }
 
                 StoreInst *SI = dyn_cast<StoreInst>(&I);
                 if (SI && SI->getOperand(1) == AI)
                 {
-                    curRepVal = SI->getOperand(0);
-                    storesToErase.push_back(SI);
+                    if (curSI)
+                        storesToErase.push_back(curSI);
+                    curSI = SI;
                 }
             }
 
             for (StoreInst *SI : storesToErase)
                 SI->eraseFromParent();
 
+            if (isEliminatedAll)
+            {
+                AI->eraseFromParent();
+                if (curSI)
+                {
+                    curSI->eraseFromParent();
+                }
+            }
+
+            return isEliminatedAll;
+        }
+
+        /// This function fills phi arguments and replaced `LoadInst` result with proper `Phi` node
+        /// while traversing the dominator tree from the root to leafs. The traversing order is DFS.
+        /// After the traversing, the function remove the unnecessary `StoreInst`.
+        void rename(DomTreeNode *DN)
+        {
+            BasicBlock *BB = DN->getBlock();
+            for (Instruction &I : make_early_inc_range(*BB))
+            {
+                // Push the stored value to the stack.
+                if (auto *SI = mbInfo.isDefInst(I))
+                {
+                    auto value = SI->getOperand(0);
+                    mbInfo.valueStack.push_back(value);
+                }
+
+                // Push the phi value to the stack.
+                if (auto *PN = mbInfo.isPhiInst(I))
+                    mbInfo.valueStack.push_back(PN);
+
+                // Rename the `LoadInst` with the most recent seen value (the top of the stack).
+                if (auto *LI = mbInfo.isUseInst(I))
+                {
+                    if (mbInfo.valueStack.empty())
+                        LI->replaceAllUsesWith(PoisonValue::get(LI->getType()));
+                    else
+                    {
+                        auto value = mbInfo.valueStack.back();
+                        LI->replaceAllUsesWith(value);
+                        LI->eraseFromParent();
+                    }
+                }
+            }
+
+            // Fill the phi node of the successors.
+            for (succ_iterator Succ = succ_begin(BB), E = succ_end(BB); Succ != E; ++Succ)
+            {
+                for (Instruction &I : **Succ)
+                {
+                    if (auto *PN = mbInfo.isPhiInst(I))
+                    {
+                        if (mbInfo.valueStack.empty())
+                            PN->addIncoming(PoisonValue::get(PN->getType()), BB);
+                        else
+                            PN->addIncoming(mbInfo.valueStack.back(), BB);
+                    }
+                }
+            }
+
+            // Traverse the children of the current sub dominator tree.
+            for (auto &C : DN->children())
+            {
+                rename(C);
+            }
+
+            // Now, there is no users of `StoreInst` result, so it's time to erase them.
+            for (Instruction &I : make_early_inc_range(*BB))
+            {
+                if (auto *SI = mbInfo.isDefInst(I))
+                {
+                    mbInfo.valueStack.pop_back();
+                    SI->eraseFromParent();
+                }
+                if (auto *PN = mbInfo.isPhiInst(I))
+                {
+                    mbInfo.valueStack.pop_back();
+                }
+            }
+        }
+
+        void
+        promoteMultiBlockAlloca(Function &F, AllocaInst *AI, DominatorTree &DT)
+        {
+            mbInfo.clear();
+            for (User *U : AI->users())
+            {
+                if (StoreInst *SI = dyn_cast<StoreInst>(U))
+                {
+                    mbInfo.defInstSet.insert(SI);
+                    mbInfo.defBlockSet.insert(SI->getParent());
+                }
+                else if (LoadInst *LI = dyn_cast<LoadInst>(U))
+                {
+                    mbInfo.useInstSet.insert(LI);
+                }
+            }
+
+            // Calculate Iterated Dominance Frontier(IDF).
+            // IDF.setDefiningBlocks(DefBlockSet);
+            // Initialize IDF calculator.
+            ForwardIDFCalculator IDF(DT);
+            IDF.setDefiningBlocks(mbInfo.defBlockSet);
+            SmallVector<BasicBlock *, 32> PhiInsertionBlocks;
+            IDF.calculate(PhiInsertionBlocks);
+            // Insert empty Phi blocks to IDF blocks.
+            for (auto PB : PhiInsertionBlocks)
+            {
+                PHINode *PN = PHINode::Create(AI->getAllocatedType(), 0, "", &PB->front());
+                mbInfo.phiNodeSet.insert(PN);
+            }
+
+            rename(DT.getNode(&F.getEntryBlock()));
             AI->eraseFromParent();
         }
 
-        bool run(Function &F)
+        bool run(Function &F, DominatorTree &DT)
         {
             collectPromotableAlloca(F);
             if (allocaInfoMap.empty())
@@ -162,13 +382,19 @@ namespace
                 // call `PromoteSingleStoreAlloca` to promote it.
                 if (pair.second->singleStore)
                 {
-                    promoteSingleStoreAlloca(pair.first, pair.second->singleStoreInst);
+                    if (!promoteSingleStoreAlloca(pair.first, pair.second->singleStoreInst, DT))
+                        promoteMultiBlockAlloca(F, pair.first, DT);
                 }
                 // If the alloca is used only in a single basic block,
                 // call `PromoteSingleBlockAlloca` to promote it.
                 else if (pair.second->singleBlockUse)
                 {
-                    promoteSingleBlockAlloca(pair.first, pair.second->singleBB);
+                    if (!promoteSingleBlockAlloca(pair.first, pair.second->singleBB))
+                        promoteMultiBlockAlloca(F, pair.first, DT);
+                }
+                else
+                {
+                    promoteMultiBlockAlloca(F, pair.first, DT);
                 }
             }
 
@@ -177,10 +403,15 @@ namespace
     };
 }
 
-PreservedAnalyses CustomMem2Reg::run(llvm::Function &F, llvm::FunctionAnalysisManager &FAM)
+PreservedAnalyses
+CustomMem2Reg::run(llvm::Function &F, FunctionAnalysisManager &FAM)
 {
     auto runner = CustomMem2RegRunner();
-    auto changed = runner.run(F);
+
+    // Obtain Dominator Tree.
+    DominatorTree &DT = FAM.getResult<DominatorTreeAnalysis>(F);
+
+    auto changed = runner.run(F, DT);
     if (changed)
     {
         // Mem2Reg pass doesn't change a control flow graph if it removes some instructions.
