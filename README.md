@@ -1,0 +1,2 @@
+# WriteYourOwnPass
+This repository contains a reference implementation for [LLVM Social Berlin: Feb 2022](https://github.com/Y-Nak/talks/blob/main/llvm-social-berlin/Writing-a-custom-IR-transformation-pass.pdf).
